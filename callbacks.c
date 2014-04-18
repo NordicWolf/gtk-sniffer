@@ -1,12 +1,21 @@
 #include "callbacks.h"
 
+/* Thread */
+void foo_loop(gpointer data)
+{
+    gdk_threads_enter();
+    pcap_loop(data, count, parse_packet, NULL);
+    pcap_close(data);
+    gdk_threads_leave();
+}
+
 /* Guarda un archivo con los paquetes capturados */
-void start_capture(GtkWidget *widget, GtkComboBox *combobox, gpointer data)
+void gui_start(GtkWidget *widget, GtkComboBox *combobox, gpointer data)
 {
     int         ltype;
-    u_char      *packet;
+    GtkEntry    *entry;     // GtkEntry Widget
     pcap_t      *pcap_ptr;
-    GtkEntry    *entry;
+    GThread     *thread;    // Thread
     GType       type        = GTK_TYPE_COMBO_BOX;
 
     /* Verifica el tipo widget activo */
@@ -14,25 +23,26 @@ void start_capture(GtkWidget *widget, GtkComboBox *combobox, gpointer data)
     if( pcap_ptr == NULL)
         return;
 
-    /* Determina el tipo de la capa de enlace de datos */
-    if( (ltype = pcap_datalink(pcap_ptr)) != DLT_EN10MB)
-    {
-        fprintf(stderr, "Tipo de enlace %d no soportado.\nEste programa sólo soporta tarjetas Ethernet.\n", ltype);
-        return;
-    }
-
-    printf ("%s\n", dev_name);
-
     /* Carga el programa de filtro al dispositivo de captura */
     entry = GTK_ENTRY (gtk_bin_get_child (GTK_BIN (combobox) ));
     if ( !set_filter(pcap_ptr, entry) )
         return;
 
-    /* Comienza con la captura de paquetes */
-    pcap_loop(pcap_ptr, count, parse_packet, packet);
+    /* Determina el tipo de la capa de enlace de datos */
+    if( (ltype = pcap_datalink(pcap_ptr)) != DLT_EN10MB)
+    {
+        fprintf(stderr, "ERROR: Este programa sólo soporta tarjetas Ethernet\n");
+        return;
+    }
 
-    /* Cierra la sesión de captura */
-    pcap_close(pcap_ptr);
+    /* Comienza con la captura de paquetes */
+    gtk_widget_set_sensitive(widget, FALSE);
+    if (!g_thread_new(NULL, (GThreadFunc)foo_loop, pcap_ptr))
+        fprintf (stderr, "ERROR: Fallo al crear el hilo\n");
+
+    gtk_widget_set_sensitive(widget, TRUE);
+/*    pcap_loop(pcap_ptr, count, parse_packet, NULL);*/
+/*    pcap_close(pcap_ptr);*/
 }
 
 // Guarda los paquetes capturados en un archivo
@@ -79,25 +89,25 @@ void save_capture(GtkWidget *widget, gpointer data)
 }
 
 /* Crea una nueva sesión de captura */
-pcap_t * new_session(gboolean mode)
+pcap_t * new_session(gboolean live_mode)
 {
     pcap_t      *pcap_ptr;
 
     /* Crea una sesión desde un dispositivo de red */
-    if( mode )
+    if( live_mode )
     {
         bpf_u_int32     maskp;              // Máscara de red
         bpf_u_int32     netip;              // Dirección IP
 
         /* Verifica que el dispositivo esté conectado a la red */
-        if( pcap_lookupnet(dev_name, &netip, &maskp, errbuf) == -1 )
+        if( pcap_lookupnet(device, &netip, &maskp, errbuf) == -1 )
         {
             fprintf(stderr, "ERROR %s\n", errbuf);
             return NULL;
         }
 
         /* Inicia una sesión en modo promiscuo */
-        if ( (pcap_ptr = pcap_open_live(dev_name, BUFSIZ, 1, 1000, errbuf)) == NULL)
+        if ( (pcap_ptr = pcap_open_live(device, BUFSIZ, 1, 1000, errbuf)) == NULL)
         {
             fprintf(stderr, "ERROR %s\n", errbuf);
             return NULL;
@@ -211,7 +221,6 @@ void parse_packet(u_char *arg, const struct pcap_pkthdr *hdr, const u_char *pack
     }
     
     /* Agrega la información a la tabla de la interfaz gráfica */
-    printf ("%s -> %s\n", src, dst);
     gui_add_rows(hdr->len, src, dst, protocol, packet);
     free(str_aux);
     free(dst);
@@ -302,27 +311,25 @@ gboolean set_filter(pcap_t *pcap_ptr, GtkEntry *entry)
 }
 
 /* Inicializa los elementos de la pantalla principal */
-void gui_show_window()
+void gui_init()
 {
     GtkWidget               *window;        // Ventana principal
-    GtkComboBox             *device;        // Lista los dispositivos de red disponibles
-    GtkComboBox             *filter;        // Campo de expresión de filtro
-    GtkTreeView             *grid;          // Lista los paquetes cacpturados
-    GtkTextBuffer           *textbuffer;
-    GtkAdjustment           *adjustment;
-    GtkButton               *fchooser;
+    GtkComboBox             *dev_combo;     // Lista los dispositivos de red disponibles
+    GtkComboBox             *flr_combo;     // Campo de expresión de filtro
+    GtkTreeView             *pkt_treev;     // Lista los paquetes cacpturados
+    GtkAdjustment           *cnt_adjst;
+    GtkTextBuffer           *textbuffer     = gtk_text_buffer_new(NULL);
     GtkBuilder              *builder        = gtk_builder_new();
     PangoFontDescription    *font_desc      = pango_font_description_from_string("Monospace 8");
 
     /* Recupera los objetos del archivo de la interfaz gráfica */
     gtk_builder_add_from_file (builder, "gui/sniffer_gui.xml", NULL);
     window      = GTK_WIDGET (gtk_builder_get_object (builder, "window"));
-    device      = GTK_COMBO_BOX (gtk_builder_get_object (builder, "devicecombobox"));
-    grid        = GTK_TREE_VIEW (gtk_builder_get_object (builder, "grid"));
-    textview    = GTK_TEXT_VIEW (gtk_builder_get_object (builder, "outputtextview"));
-    filter      = GTK_COMBO_BOX (gtk_builder_get_object (builder, "filtercombobox"));
-    adjustment  = GTK_ADJUSTMENT (gtk_builder_get_object (builder, "adjustment"));
-    textbuffer  = gtk_text_buffer_new(NULL);
+    dev_combo   = GTK_COMBO_BOX (gtk_builder_get_object (builder, "dev_combobox"));
+    flr_combo   = GTK_COMBO_BOX (gtk_builder_get_object (builder, "flr_combobox"));
+    pkt_treev   = GTK_TREE_VIEW (gtk_builder_get_object (builder, "pkt_treeview"));
+    pkt_textv   = GTK_TEXT_VIEW (gtk_builder_get_object (builder, "pkt_textview"));
+    cnt_adjst   = GTK_ADJUSTMENT (gtk_builder_get_object (builder, "cnt_adjusment"));
 
     /* Define las listas de dispositivo y de filtro */
     filter_store = gtk_list_store_new(1, G_TYPE_STRING);
@@ -330,15 +337,15 @@ void gui_show_window()
                                          G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
 
     /* Cambia la tipografía del texto de salida */
-    gtk_widget_modify_font(GTK_WIDGET(textview), font_desc);
+    gtk_widget_modify_font(GTK_WIDGET(pkt_textv), font_desc);
     pango_font_description_free(font_desc);
 
-    gui_add_devices(device);                        // Crea la lista de los dispositivo disponibles
-    source = GTK_WIDGET(device);                    // Establece el origen de captura por defecto
-    gui_set_filters(filter);                        // Crea la lista de los filtros
-    gui_set_grid(grid);                             // Construye la lista de los paquetes
-    gtk_adjustment_set_value (adjustment, count);   // Establece el valor máximo de paquetes capturados
-    gtk_text_view_set_buffer(textview, textbuffer);
+    gui_add_devices(dev_combo);                         // Crea la lista de los dispositivo disponibles
+    source = GTK_WIDGET(dev_combo);                     // Establece el origen de captura por defecto
+    gui_set_filters(flr_combo);                         // Crea la lista de los filtros
+    gui_set_grid(pkt_treev);                            // Construye la lista de los paquetes
+    gtk_adjustment_set_value (cnt_adjst, count);        // Establece el valor máximo de paquetes capturados
+    gtk_text_view_set_buffer(pkt_textv, textbuffer);    // Asocia el búfer de texto de salida
 
     /* Conecta las señales y destruye el objeto builder */
     gtk_builder_connect_signals (builder, NULL);
@@ -346,7 +353,6 @@ void gui_show_window()
 
     /* Muestra la ventana principal */
     gtk_widget_show (window);
-    gtk_main();
 }
 
 /* Limpia los campos de salida */
@@ -354,7 +360,9 @@ void gui_clear(GtkWidget *widget, gpointer data)
 {
     GtkTextBuffer *textbuffer;
 
-    textbuffer = gtk_text_view_get_buffer(textview);
+    count       = 0;
+    textbuffer  = gtk_text_view_get_buffer(pkt_textv);
+
     gtk_text_buffer_set_text(textbuffer, "", -1);
     gtk_list_store_clear(packet_store);
 }
@@ -376,11 +384,12 @@ void gui_add_devices(GtkComboBox *combobox)
 {
     int             i           = 0,
                     dev_index   = -1;
-    char            *device;
+    char            *dev_item   = (char *)malloc(0),
+                    *dev_name   = (char *)malloc(strlen(device) * sizeof(char));
+    pcap_if_t       *alldevsp;
     GtkTreeIter     iter;
     GtkCellRenderer *cell       = gtk_cell_renderer_text_new();
     GtkListStore    *dev_list   = gtk_list_store_new(1, G_TYPE_STRING);
-    pcap_if_t       *alldevsp;
 
     /* Establece el nombre del objeto */
     gtk_widget_set_name(GTK_WIDGET(combobox), "devices");
@@ -391,26 +400,29 @@ void gui_add_devices(GtkComboBox *combobox)
         fprintf (stderr, "%s\n", errbuf);
         exit (EXIT_FAILURE);
     }
-    /* Agrega el nombre del dispositivo a la lista */
+
+    strcpy(dev_name, device);
     gtk_combo_box_set_model(combobox, GTK_TREE_MODEL(dev_list));
+
+    /* Agrega el nombre del dispositivo a la lista */
     while ( alldevsp != NULL )
     {
-        /* Obtiene el nombre del dispositivo disponible */
-        device = (char *)malloc(strlen(alldevsp->name) * sizeof(char));
-        strcpy(device, alldevsp->name);
+        dev_item = (char *)realloc(dev_item, strlen(alldevsp->name) * sizeof(char));
+        strcpy(dev_item, alldevsp->name);
 
-        /* Se agrega a la lista */
         gtk_list_store_append( dev_list, &iter );
-        gtk_list_store_set( dev_list, &iter, 0, alldevsp->name, -1 );
+        gtk_list_store_set( dev_list, &iter, 0, dev_item, -1 );
+
         alldevsp = alldevsp->next;
-        dev_index = (strcmp(device, dev_name) == 0) ? i : dev_index; i++;
+        dev_index = (strcmp(dev_item, dev_name) == 0) ? i : dev_index; i++;
     }
     gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(combobox), cell, TRUE);
     gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(combobox), cell, "text", 0, NULL);
     gtk_combo_box_set_active (combobox, dev_index);
 
     /* Elimina la referencia y libera memoria */
-    free(device);
+    free(dev_item);
+    free(dev_name);
     g_object_unref(G_OBJECT(dev_list));
 }
 
@@ -459,7 +471,7 @@ void gui_set_filters(GtkComboBox *combobox)
     gtk_combo_box_set_model(combobox, GTK_TREE_MODEL(filter_store));
     gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(combobox), cell, TRUE);
     gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(combobox), cell, "text", 0, NULL);
-    gtk_entry_set_text(entry, flt_expr);
+    gtk_entry_set_text(entry, filter);
     gui_add_filters(entry, NULL);
 }
 
@@ -467,42 +479,33 @@ void gui_set_filters(GtkComboBox *combobox)
 void gui_device_change(GtkComboBox *combobox, gpointer data)
 {
     GtkTreeIter     iter;
-    gchar           *value  = NULL;
     GtkTreeModel    *model;
 
     if( gtk_combo_box_get_active_iter( combobox, &iter ) )
     {
-        // Obtiene el modelo de datos del objeto
+        // Obtiene el nombre del dispositivo
         model = gtk_combo_box_get_model( combobox );
-
-        // Cambia el texto del campo de entrada
-        gtk_tree_model_get( model, &iter, 0, &value, -1 );
-
-        // Copia el valor del filtro
-        dev_name = (char *)realloc(dev_name, strlen(value) * sizeof(char));
-        strcpy(dev_name, value);
-        printf ("DISP: %s\n", dev_name);
+        gtk_tree_model_get( model, &iter, 0, &device, -1 );
+        printf ("DISP: %s\n", device);
     }
 }
 
 /* Cambia al la nueva expresión del filtro */
 void gui_filter_change(GtkComboBox *combobox, gpointer data)
 {
-    gchar           *value  = NULL;
     GtkEntry        *entry;
     GtkTreeIter     iter;
     GtkTreeModel    *model;
 
     if( gtk_combo_box_get_active_iter( combobox, &iter ) )
     {
-        // Obtiene el modelo de datos del objeto
+        // Obtiene la expresión del filtro
         model = gtk_combo_box_get_model( combobox );
+        gtk_tree_model_get( model, &iter, 0, &filter, -1 );
 
-        // Cambia el texto del campo de entrada
-        gtk_tree_model_get( model, &iter, 0, &value, -1 );
-
+        // Cambia el valor del objeto
         entry = GTK_ENTRY (gtk_bin_get_child (GTK_BIN (combobox) ));
-        gtk_entry_set_text(entry, value);
+        gtk_entry_set_text(entry, filter);
     }
 }
 
@@ -523,7 +526,7 @@ void gui_display_text(GtkTreeView *treeview, gpointer data)
 
     selection   = gtk_tree_view_get_selection(treeview);
     model       = gtk_tree_view_get_model(treeview);
-    textbuffer  = gtk_text_view_get_buffer(textview);
+    textbuffer  = gtk_text_view_get_buffer(pkt_textv);
 
     if(gtk_tree_selection_get_selected(selection, &model, &iter))
     {

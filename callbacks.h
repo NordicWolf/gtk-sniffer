@@ -11,10 +11,8 @@
 
 // ARGUMENTOS
 extern double       count;                          // Límite de paquetes
-extern char         *dev_name,                      // Nombre del dispositivo
-                    *flt_expr,                      // Expresión del filtro
-                    *fname_in,                      // Nombre del archivo de entrada
-                    *fname_out;                     // Nombre del archivo de salida
+extern char         *device,                        // Nombre del dispositivo
+                    *filter;                        // Expresión del filtro
 
 // LIBPCAP
 int                 pnum;                           // Número del paquete capturado
@@ -22,12 +20,15 @@ char                errbuf[PCAP_ERRBUF_SIZE];       // Búfer de mensaje de erro
 
 // GTK
 GtkWidget           *source;                        // Widget de origen de datos
+GtkTextView         *pkt_textv;                     // Muestra el contenido del paquete capturado
 GtkListStore        *filter_store;                  // Almacena los filtros
 GtkListStore        *packet_store;                  // Almacena los datos de los paquetes
-GtkTextView         *textview;                      // Muestra el contenido del paquete capturado
+
+// Thread
+void foo_loop(gpointer);
 
 // Guarda un archivo con los paquetes capturados
-void start_capture(GtkWidget *, GtkComboBox *, gpointer);
+void gui_start(GtkWidget *, GtkComboBox *, gpointer);
 
 // Guarda los paquetes capturados en un archivo
 void save_capture(GtkWidget *, gpointer data);
@@ -45,7 +46,7 @@ pcap_t * new_session(gboolean);
 gboolean set_filter(pcap_t *, GtkEntry *);
 
 // Inicializa los elementos de la pantalla principal
-void gui_show_window();
+void gui_init();
 
 // Limpia los campos de salida
 void gui_clear(GtkWidget *, gpointer);

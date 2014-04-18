@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <!-- interface-requires gtk+ 3.0 -->
-  <object class="GtkAdjustment" id="adjustment">
+  <object class="GtkAdjustment" id="cnt_adjusment">
     <property name="lower">-1</property>
     <property name="upper">10000</property>
     <property name="step_increment">1</property>
@@ -72,7 +72,7 @@
                                             <property name="xalign">0</property>
                                             <property name="active">True</property>
                                             <property name="draw_indicator">True</property>
-                                            <signal name="toggled" handler="gui_set_source" object="devicecombobox" swapped="no"/>
+                                            <signal name="toggled" handler="gui_set_source" object="dev_combobox" swapped="no"/>
                                           </object>
                                           <packing>
                                             <property name="expand">False</property>
@@ -81,7 +81,7 @@
                                           </packing>
                                         </child>
                                         <child>
-                                          <object class="GtkComboBox" id="devicecombobox">
+                                          <object class="GtkComboBox" id="dev_combobox">
                                             <property name="visible">True</property>
                                             <property name="can_focus">False</property>
                                             <signal name="changed" handler="gui_device_change" swapped="no"/>
@@ -175,7 +175,7 @@
                                             <property name="visible">True</property>
                                             <property name="can_focus">True</property>
                                             <property name="invisible_char">●</property>
-                                            <property name="adjustment">adjustment</property>
+                                            <property name="adjustment">cnt_adjusment</property>
                                             <signal name="value-changed" handler="gui_set_count" swapped="no"/>
                                           </object>
                                           <packing>
@@ -209,7 +209,7 @@
                                           </packing>
                                         </child>
                                         <child>
-                                          <object class="GtkComboBox" id="filtercombobox">
+                                          <object class="GtkComboBox" id="flr_combobox">
                                             <property name="visible">True</property>
                                             <property name="can_focus">False</property>
                                             <property name="has_entry">True</property>
@@ -365,7 +365,7 @@
                             <property name="use_underline">True</property>
                             <property name="stock_id">gtk-media-play</property>
                             <accelerator key="Return" signal="clicked" modifiers="GDK_CONTROL_MASK"/>
-                            <signal name="clicked" handler="start_capture" object="filtercombobox" swapped="no"/>
+                            <signal name="clicked" handler="gui_start" object="flr_combobox" swapped="no"/>
                           </object>
                           <packing>
                             <property name="expand">False</property>
@@ -390,7 +390,7 @@
                             <property name="can_focus">True</property>
                             <property name="shadow_type">in</property>
                             <child>
-                              <object class="GtkTreeView" id="grid">
+                              <object class="GtkTreeView" id="pkt_treeview">
                                 <property name="visible">True</property>
                                 <property name="can_focus">True</property>
                                 <property name="enable_grid_lines">both</property>
@@ -411,7 +411,7 @@
                             <property name="can_focus">True</property>
                             <property name="shadow_type">in</property>
                             <child>
-                              <object class="GtkTextView" id="outputtextview">
+                              <object class="GtkTextView" id="pkt_textview">
                                 <property name="width_request">525</property>
                                 <property name="height_request">75</property>
                                 <property name="visible">True</property>

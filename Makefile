@@ -3,7 +3,7 @@
 # Aldo Rodríguez Coreño
 
 CC      = gcc
-CFLAGS  = -g -lpcap `pkg-config --cflags --libs gtk+-2.0 gmodule-2.0`
+CFLAGS  = -lpcap `pkg-config --cflags --libs gtk+-2.0 gmodule-2.0 gthread-2.0`
 SRC     = main.c callbacks.c
 OBJS    = $(SRC: .c = .o)
 
