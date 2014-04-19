@@ -1,57 +1,69 @@
 #include "callbacks.h"
 
-/* Thread */
-void foo_loop(gpointer data)
+/* Threads */
+void thread_capture(gpointer data)
 {
     gdk_threads_enter();
-    pcap_loop(data, count, parse_packet, NULL);
-    pcap_close(data);
+
+    if (output != NULL)
+    {
+        file = pcap_dump_open(pcap_ptr, output);
+        pcap_loop(pcap_ptr, count, parse_packet, NULL);
+        pcap_dump_close(file);
+    }
+    else
+        pcap_loop(pcap_ptr, count, parse_packet, NULL);
+
+    pcap_close(pcap_ptr);
+    gtk_widget_set_sensitive(data, TRUE);
+    printf ("\n¡Listo!\n");
+
     gdk_threads_leave();
 }
 
 /* Guarda un archivo con los paquetes capturados */
-void gui_start(GtkWidget *widget, GtkComboBox *combobox, gpointer data)
+void gui_start_capture(GtkWidget *widget, GtkComboBox *combobox, gpointer data)
 {
-    int         ltype;
-    GtkEntry    *entry;     // GtkEntry Widget
-    pcap_t      *pcap_ptr;
-    GThread     *thread;    // Thread
-    GType       type        = GTK_TYPE_COMBO_BOX;
+    GtkEntry    *entry;
+    GThread     *thread;
+
+    /* Limpia los campos de salida */
+    gui_clear();
 
     /* Verifica el tipo widget activo */
-    pcap_ptr = new_session(type == GTK_OBJECT_TYPE(source));
+    pcap_ptr = new_session( GTK_OBJECT_TYPE(source) == GTK_TYPE_COMBO_BOX );
     if( pcap_ptr == NULL)
         return;
 
     /* Carga el programa de filtro al dispositivo de captura */
-    entry = GTK_ENTRY (gtk_bin_get_child (GTK_BIN (combobox) ));
+    entry = GTK_ENTRY(gtk_bin_get_child(GTK_BIN(combobox)));
     if ( !set_filter(pcap_ptr, entry) )
         return;
 
     /* Determina el tipo de la capa de enlace de datos */
-    if( (ltype = pcap_datalink(pcap_ptr)) != DLT_EN10MB)
+    if(pcap_datalink(pcap_ptr) != DLT_EN10MB)
     {
         fprintf(stderr, "ERROR: Este programa sólo soporta tarjetas Ethernet\n");
         return;
     }
 
     /* Comienza con la captura de paquetes */
-    gtk_widget_set_sensitive(widget, FALSE);
-    if (!g_thread_new(NULL, (GThreadFunc)foo_loop, pcap_ptr))
+    gtk_widget_set_sensitive(data, FALSE);
+    if ( !g_thread_new(NULL, (GThreadFunc)thread_capture, widget) )
         fprintf (stderr, "ERROR: Fallo al crear el hilo\n");
-
-    gtk_widget_set_sensitive(widget, TRUE);
-/*    pcap_loop(pcap_ptr, count, parse_packet, NULL);*/
-/*    pcap_close(pcap_ptr);*/
 }
 
-// Guarda los paquetes capturados en un archivo
-void save_capture(GtkWidget *widget, gpointer data)
+/* Detiene una captura en curso */
+void gui_stop_capture(GtkWidget *widget, gpointer data)
 {
-    int             i;
-    char            *fname      = NULL;
+    pcap_breakloop(pcap_ptr);
+    gtk_widget_set_sensitive(widget, FALSE);
+}
+
+/* Guarda los paquetes capturados en un archivo */
+void new_capture(GtkWidget *widget, gpointer data)
+{
     GtkWidget       *fchooser;
-    pcap_dumper_t   *file;
 
     /* Crea un nuevo diálogo de selección de archivo */
     fchooser    = gtk_file_chooser_dialog_new ( NULL, NULL,
@@ -64,34 +76,22 @@ void save_capture(GtkWidget *widget, gpointer data)
     gtk_file_chooser_set_current_folder (GTK_FILE_CHOOSER (fchooser), ".");
     gtk_file_chooser_set_current_name (GTK_FILE_CHOOSER (fchooser), "test.pcap");
 
-    /* Muestra el widget */
+    /* Muestra el widget y obtiene el nombre del archivo */
     if (gtk_dialog_run (GTK_DIALOG(fchooser)) == GTK_RESPONSE_ACCEPT)
-        fname = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(fchooser));
-    else
-        return;
-
+    {
+        output  = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(fchooser));
+        gui_clear();
+    }
+        
     /* Destruye el widget */
     gtk_widget_destroy (fchooser);
-    gtk_list_store_clear(packet_store);
-
-    /* Comienza con la captura de paquetes */
-    printf("Guardando el archivo: %s ...\n", fname);
-/*    if( (file = pcap_dump_open(pcap_ptr, fname)) == NULL )*/
-/*    {*/
-/*        fprintf(stderr, "Imposible abrir el archivo para escritura.");*/
-/*        return;*/
-/*    }*/
-/*    for (i = 0; i < count; i++)*/
-/*    {*/
-/*        */
-/*    }*/
-/*    pcap_dump_close(file);*/
 }
 
 /* Crea una nueva sesión de captura */
 pcap_t * new_session(gboolean live_mode)
 {
-    pcap_t      *pcap_ptr;
+    pcap_t      *pcap_ptr = NULL;
+    char        *fname;
 
     /* Crea una sesión desde un dispositivo de red */
     if( live_mode )
@@ -108,26 +108,17 @@ pcap_t * new_session(gboolean live_mode)
 
         /* Inicia una sesión en modo promiscuo */
         if ( (pcap_ptr = pcap_open_live(device, BUFSIZ, 1, 1000, errbuf)) == NULL)
-        {
             fprintf(stderr, "ERROR %s\n", errbuf);
-            return NULL;
-        }
     }
     /* Crea una nueva sesión de captura desde un archivo */
     else
     {
-        char *fname;
-
         /* Recupera el nombre del archivo */
-        fname = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(source));
-        gtk_list_store_clear(packet_store);
+        if( (fname = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(source)) ) == NULL)
+            return NULL;
 
-        if(fname == NULL)
-            return;
-
-        /* Abre y procesa el archivo */
-        printf("Abriendo el archivo: %s ...\n", fname);
-        pcap_ptr = pcap_open_offline(fname, errbuf);
+        if ( (pcap_ptr = pcap_open_offline(fname, errbuf)) == NULL )
+            fprintf(stderr, "ERROR %s\n", errbuf);
     }
 
     return pcap_ptr;
@@ -136,20 +127,19 @@ pcap_t * new_session(gboolean live_mode)
 /* Procesa los paquetes capturados */
 void parse_packet(u_char *arg, const struct pcap_pkthdr *hdr, const u_char *packet)
 {
-    int         lhdrlen         = 14,       // Tamaño de la cabecera Ethernet
-                i, size;
-    char        *src_mac,                   // MAC origen
-                *dst_mac,                   // MAC destino
-                *src, *dst,                 // IP origen, IP destino
-                *protocol,                  // Protocolo
-                *str_aux;
+    int                 lhdrlen         = 14,       // Tamaño de la cabecera Ethernet
+                        i, size;
+    char                *src_mac,                   // MAC origen
+                        *dst_mac,                   // MAC destino
+                        *str_aux;
+    const u_char        *ptr            = packet;
 
-    struct ether_header *eth_hdr;           // Estructura de datos Ethernet
-    struct ip           *ip_hdr;            // Estructura de datos ip
-    struct tcphdr       *tcp_hdr;           // Estructura de datos tcp
-    struct udphdr       *udp_hdr;           // Estructura de datos udp
-    struct icmphdr      *icmp_hdr;          // Estructura de datos icmp
-    const u_char        *ptr    = packet;
+    struct row          args;
+    struct ether_header *eth_hdr;                   // Estructura de datos Ethernet
+    struct ip           *ip_hdr;                    // Estructura de datos ip
+    struct tcphdr       *tcp_hdr;                   // Estructura de datos tcp
+    struct udphdr       *udp_hdr;                   // Estructura de datos udp
+    struct icmphdr      *icmp_hdr;                  // Estructura de datos icmp
 
     str_aux = (char *)malloc(2 * sizeof(char));
     dst_mac = (char *)calloc(17, sizeof(char));
@@ -177,33 +167,33 @@ void parse_packet(u_char *arg, const struct pcap_pkthdr *hdr, const u_char *pack
     switch( ntohs (eth_hdr->ether_type) )
     {
         case ETHERTYPE_IP:
-            /* Avanza a la siguiente capa */
-            ptr = packet + lhdrlen;
+            /* Salta la cabecera Ethernet y avanza a la siguiente capa */
+            ptr = packet + 14;
             ip_hdr = (struct ip*)ptr;
 
             /* Obtiene las direcciones IP  */
-            src = (char *)calloc(strlen(inet_ntoa(ip_hdr->ip_src)), sizeof(char));
-            dst = (char *)calloc(strlen(inet_ntoa(ip_hdr->ip_dst)), sizeof(char));
+            args.src = (char *)calloc(strlen(inet_ntoa(ip_hdr->ip_src)), sizeof(char));
+            args.dst = (char *)calloc(strlen(inet_ntoa(ip_hdr->ip_dst)), sizeof(char));
 
-            strcpy(src, inet_ntoa(ip_hdr->ip_src)); // IP Origen
-            strcpy(dst, inet_ntoa(ip_hdr->ip_dst)); // IP Destino
+            strcpy(args.src, inet_ntoa(ip_hdr->ip_src));            // IP Origen
+            strcpy(args.dst, inet_ntoa(ip_hdr->ip_dst));            // IP Destino
 
-            /* Avanza a la siguiente capa */
+            /* Salta la cabecera IP y avanza a la siguiente capa */
             ptr += 4 * ip_hdr->ip_hl;
 
-            switch( ip_hdr->ip_p )                  // Determina el protocolo
+            switch( ip_hdr->ip_p )
             {
                 case IPPROTO_TCP:
                     tcp_hdr = (struct tcphdr *)ptr;
-                    protocol = "TCP";
+                    args.proto = "TCP";
                     break;
                 case IPPROTO_UDP:
                     udp_hdr = (struct udphdr *)ptr;
-                    protocol = "UDP";
+                    args.proto = "UDP";
                     break;
                 case IPPROTO_ICMP:
                     icmp_hdr = (struct icmphdr *)ptr;
-                    protocol = "ICMP";
+                    args.proto = "ICMP";
                     break;
                 default:
                     printf ("Protocolo no soportado: %d\n", ip_hdr->ip_p);
@@ -211,9 +201,13 @@ void parse_packet(u_char *arg, const struct pcap_pkthdr *hdr, const u_char *pack
             }
             break;
         case ETHERTYPE_ARP:
-            src = src_mac;
-            dst = dst_mac;
-            protocol = "ARP";
+            /* Obtiene las direcciones MAC  */
+            args.src = (char *)malloc(strlen(src_mac) * sizeof(char));
+            args.dst = (char *)malloc(strlen(dst_mac) * sizeof(char));
+
+            strcpy(args.src, src_mac);
+            strcpy(args.dst, dst_mac);
+            args.proto = "ARP";
             break;
         default:
             printf ("Ethertype no soportado %d\n", ntohs (eth_hdr->ether_type));
@@ -221,16 +215,22 @@ void parse_packet(u_char *arg, const struct pcap_pkthdr *hdr, const u_char *pack
     }
     
     /* Agrega la información a la tabla de la interfaz gráfica */
-    gui_add_rows(hdr->len, src, dst, protocol, packet);
+    args.len = hdr->len;        // Agrega la el tamaño total del paquete
+    args.pkt = packet;          // Agrega el apuntador al paquete
+    gui_add_rows(args);
+
+    /* Guarda el paquete en archivo en disco */
+    if (file != NULL)
+        pcap_dump((u_char *)file, hdr, packet);
+
+    /* Libera la memoria asociada a los apuntadores */
     free(str_aux);
-    free(dst);
-    free(src);
     free(src_mac);
     free(dst_mac);
 }
 
 /* Agrega la información a la tabla de la interfaz gráfica */
-void gui_add_rows(int length, char *src, char *dst, char *proto, const u_char *packet)
+void gui_add_rows(struct row args)
 {
     int             i, size;
     char            *str_out,                   // Guarda la trama del paquete en hexadecimal
@@ -242,11 +242,12 @@ void gui_add_rows(int length, char *src, char *dst, char *proto, const u_char *p
     str_aux = (char *)malloc(0);
 
     /* Genera la cadena con el contenido del paquete */
+    printf ("======================================================================\n");
     printf("Paquete %i recibido...\n", ++pnum);
-    for(i = 0; i < length; i++)
+    for(i = 0; i < args.len; i++)
     {
         /* Da formato a la salida*/
-        if (i < length && i % 16 != 0)
+        if (i < args.len && i % 16 != 0)
         {
             size += 2;
             str_out = (char *)realloc(str_out, size * sizeof(char));
@@ -263,7 +264,7 @@ void gui_add_rows(int length, char *src, char *dst, char *proto, const u_char *p
         }
         size = strlen(str_out) + 3;
         str_out = (char *)realloc(str_out, size * sizeof(char));
-        sprintf(str_aux, "%02x", packet[i]);
+        sprintf(str_aux, "%02x", args.pkt[i]);
         strcat(str_out, str_aux);
     }
 
@@ -271,16 +272,18 @@ void gui_add_rows(int length, char *src, char *dst, char *proto, const u_char *p
     gtk_list_store_append(packet_store, &iter);
     gtk_list_store_set(packet_store, &iter,
         0, pnum,
-        1, length,                      // Tamaño total en bytes
-        2, src,                         // IP origen / MAC origen (ARP)
-        3, dst,                         // IP destino / MAC destino (ARP)
-        4, proto,                       // Protocolo
+        1, args.len,                    // Tamaño total en bytes
+        2, args.src,                    // IP origen / MAC origen (ARP)
+        3, args.dst,                    // IP destino / MAC destino (ARP)
+        4, args.proto,                  // Protocolo
         5, str_out, -1);                // Trama del paquete
 
     printf ("%s\n", str_out);
 
     free(str_aux);
     free(str_out);
+    free(args.src);
+    free(args.dst);
 }
 
 /* Comienza con la captura de paquetes */
@@ -307,6 +310,7 @@ gboolean set_filter(pcap_t *pcap_ptr, GtkEntry *entry)
     }
 
     printf ("FILTRO: '%s'\n", str_filter);
+    pcap_freecode(&fp);
     return TRUE;
 }
 
@@ -318,7 +322,6 @@ void gui_init()
     GtkComboBox             *flr_combo;     // Campo de expresión de filtro
     GtkTreeView             *pkt_treev;     // Lista los paquetes cacpturados
     GtkAdjustment           *cnt_adjst;
-    GtkTextBuffer           *textbuffer     = gtk_text_buffer_new(NULL);
     GtkBuilder              *builder        = gtk_builder_new();
     PangoFontDescription    *font_desc      = pango_font_description_from_string("Monospace 8");
 
@@ -330,6 +333,7 @@ void gui_init()
     pkt_treev   = GTK_TREE_VIEW (gtk_builder_get_object (builder, "pkt_treeview"));
     pkt_textv   = GTK_TEXT_VIEW (gtk_builder_get_object (builder, "pkt_textview"));
     cnt_adjst   = GTK_ADJUSTMENT (gtk_builder_get_object (builder, "cnt_adjusment"));
+    stp_buttn   = GTK_TOOL_BUTTON (gtk_builder_get_object (builder, "stop_button"));
 
     /* Define las listas de dispositivo y de filtro */
     filter_store = gtk_list_store_new(1, G_TYPE_STRING);
@@ -340,12 +344,12 @@ void gui_init()
     gtk_widget_modify_font(GTK_WIDGET(pkt_textv), font_desc);
     pango_font_description_free(font_desc);
 
-    gui_add_devices(dev_combo);                         // Crea la lista de los dispositivo disponibles
-    source = GTK_WIDGET(dev_combo);                     // Establece el origen de captura por defecto
-    gui_set_filters(flr_combo);                         // Crea la lista de los filtros
-    gui_set_grid(pkt_treev);                            // Construye la lista de los paquetes
-    gtk_adjustment_set_value (cnt_adjst, count);        // Establece el valor máximo de paquetes capturados
-    gtk_text_view_set_buffer(pkt_textv, textbuffer);    // Asocia el búfer de texto de salida
+    source = GTK_WIDGET(dev_combo);                                 // Establece el origen de captura por defecto
+    gui_add_devices(dev_combo);                                     // Crea la lista de los dispositivo disponibles
+    gui_set_filters(flr_combo);                                     // Crea la lista de los filtros
+    gui_set_grid(pkt_treev);                                        // Construye la lista de los paquetes
+    gtk_adjustment_set_value (cnt_adjst, count);                    // Establece el valor máximo de paquetes capturados
+    gtk_combo_box_set_entry_text_column (flr_combo, 0);
 
     /* Conecta las señales y destruye el objeto builder */
     gtk_builder_connect_signals (builder, NULL);
@@ -356,11 +360,11 @@ void gui_init()
 }
 
 /* Limpia los campos de salida */
-void gui_clear(GtkWidget *widget, gpointer data)
+void gui_clear()
 {
     GtkTextBuffer *textbuffer;
 
-    count       = 0;
+    pnum        = 0;
     textbuffer  = gtk_text_view_get_buffer(pkt_textv);
 
     gtk_text_buffer_set_text(textbuffer, "", -1);
@@ -368,9 +372,16 @@ void gui_clear(GtkWidget *widget, gpointer data)
 }
 
 /* Cambia el estado de los controles */
-void gui_set_source(GtkToggleButton *togglebutton, GtkWidget *widget, gpointer data)
+void gui_toggle_controls(GtkWidget *receiver, GtkWidget *widget, gpointer data)
 {
     gboolean    status;
+
+    if (GTK_OBJECT_TYPE(receiver) == GTK_TYPE_TOOL_BUTTON)
+    {
+        status = gtk_widget_get_sensitive(receiver);
+        gtk_widget_set_sensitive(GTK_WIDGET(stp_buttn), !status);
+        return;
+    }
 
     status = gtk_widget_get_sensitive (widget);
     gtk_widget_set_sensitive(widget, !status);
@@ -437,7 +448,7 @@ void gui_add_filters(GtkEntry *entry, gpointer data)
 
     /* Agrega la expresión del filtro a la lista */
     gtk_list_store_prepend(filter_store, &iter);
-    gtk_list_store_set( filter_store, &iter, 0, str_filter, -1 );
+    gtk_list_store_set( filter_store, &iter, 0, str_filter, -1);
 }
 
 /* Construye la tabla de los paquetes recibidos */
@@ -469,8 +480,6 @@ void gui_set_filters(GtkComboBox *combobox)
     g_signal_connect(G_OBJECT(entry), "activate", G_CALLBACK(gui_add_filters), NULL);
 
     gtk_combo_box_set_model(combobox, GTK_TREE_MODEL(filter_store));
-    gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(combobox), cell, TRUE);
-    gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(combobox), cell, "text", 0, NULL);
     gtk_entry_set_text(entry, filter);
     gui_add_filters(entry, NULL);
 }

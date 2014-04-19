@@ -3,7 +3,8 @@
 
 double      count       = -1;       // Máximo de paquetes a capturar
 char        *device     = NULL,     // Nombre del dispositivo
-            *filter     = NULL;     // Expresión del filtro
+            *filter     = NULL,     // Expresión del filtro
+            *output     = NULL;     // Nombre del archivo de salida
 
 /** 
  * Analizador de paquetes de red
@@ -15,7 +16,7 @@ int main(int argc, char **argv)
             size    = 0;
 
     /* Obtiene las opciones de la línea de comandos */
-    while ((opt = getopt(argc, argv, "hi:c:o:f:")) != -1)
+    while ((opt = getopt(argc, argv, "hi:c:o:")) != -1)
     {
         switch(opt)
         {
@@ -28,6 +29,9 @@ int main(int argc, char **argv)
                 break;
             case 'c':
                 count = atoi(optarg);
+                break;
+            case 'o':
+                output = optarg;
                 break;
         }
     }

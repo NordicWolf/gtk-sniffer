@@ -12,32 +12,48 @@
 // ARGUMENTOS
 extern double       count;                          // Límite de paquetes
 extern char         *device,                        // Nombre del dispositivo
-                    *filter;                        // Expresión del filtro
+                    *filter,                        // Expresión del filtro
+                    *output;
 
 // LIBPCAP
 int                 pnum;                           // Número del paquete capturado
 char                errbuf[PCAP_ERRBUF_SIZE];       // Búfer de mensaje de error
+pcap_t              *pcap_ptr;
+pcap_dumper_t       *file;
 
 // GTK
 GtkWidget           *source;                        // Widget de origen de datos
 GtkTextView         *pkt_textv;                     // Muestra el contenido del paquete capturado
+GtkToolButton       *stp_buttn;                     // Detiene la captura de paquetes
 GtkListStore        *filter_store;                  // Almacena los filtros
 GtkListStore        *packet_store;                  // Almacena los datos de los paquetes
 
+struct row
+{
+    int             len;
+    char            *src;
+    char            *dst;
+    char            *proto;
+    const u_char    *pkt;
+};
+
 // Thread
-void foo_loop(gpointer);
+void thread_capture(gpointer);
 
 // Guarda un archivo con los paquetes capturados
-void gui_start(GtkWidget *, GtkComboBox *, gpointer);
+void gui_start_capture(GtkWidget *, GtkComboBox *, gpointer);
+
+// Detiene una captura en curso
+void gui_stop_capture(GtkWidget *, gpointer);
 
 // Guarda los paquetes capturados en un archivo
-void save_capture(GtkWidget *, gpointer data);
+void new_capture(GtkWidget *, gpointer data);
 
 // Procesa los paquetes capturados
 void parse_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 
 // Agrega la información a la tabla de la interfaz gráfica
-void gui_add_rows(int, char *, char *, char *, const u_char *);
+void gui_add_rows(struct row);
 
 // Crea una nueva sesión de captura
 pcap_t * new_session(gboolean);
@@ -49,10 +65,10 @@ gboolean set_filter(pcap_t *, GtkEntry *);
 void gui_init();
 
 // Limpia los campos de salida
-void gui_clear(GtkWidget *, gpointer);
+void gui_clear();
 
 // Cambia el estado de los controles
-void gui_set_source(GtkToggleButton *, GtkWidget *, gpointer);
+void gui_toggle_controls(GtkWidget *, GtkWidget *, gpointer);
 
 // Muestra la lista de dispositivos disponibles
 void gui_add_devices(GtkComboBox *);
